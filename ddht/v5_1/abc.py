@@ -246,6 +246,9 @@ class ClientAPI(ServiceAPI):
     async def wait_listening(self) -> None:
         ...
 
+    #
+    # Message Sending API
+    #
     @abstractmethod
     async def send_ping(
         self,
@@ -256,9 +259,6 @@ class ClientAPI(ServiceAPI):
     ) -> bytes:
         ...
 
-    #
-    # Message Sending API
-    #
     @abstractmethod
     async def send_pong(
         self, endpoint: Endpoint, node_id: NodeID, *, request_id: bytes,
@@ -388,6 +388,10 @@ class ClientAPI(ServiceAPI):
         ...
 
 
+class TalkProtocolAPI(ABC):
+    protocol_id: bytes
+
+
 class NetworkAPI(ServiceAPI):
     client: ClientAPI
     routing_table: RoutingTableAPI
@@ -423,6 +427,13 @@ class NetworkAPI(ServiceAPI):
     @property
     @abstractmethod
     def enr_db(self) -> ENRDatabaseAPI:
+        ...
+
+    #
+    # TALK API
+    #
+    @abstractmethod
+    def add_talk_protocol(self, protocol: TalkProtocolAPI) -> None:
         ...
 
     #
