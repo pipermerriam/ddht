@@ -15,6 +15,8 @@ from ddht.v5_1.abc import ClientAPI, EventsAPI, NetworkAPI
 from ddht.v5_1.client import Client
 from ddht.v5_1.events import Events
 from ddht.v5_1.network import Network
+from ddht.v5_1.pong_responder import PongResponder
+from ddht.v5_1.routing_table_manager import RoutingTableManager
 
 
 class Node(NodeAPI):
@@ -70,7 +72,15 @@ class Node(NodeAPI):
             enr_db=self.enr_db,
             events=self.events,
         )
-        network = Network(client, bootnodes)
-        async with background_trio_service(network):
+        network = Network(client=client)
+
+        routing_table_manager = RoutingTableManager(
+            network=network, routing_table=network.routing_table, bootnodes=bootnodes,
+        )
+        pong_responder = PongResponder(network=network)
+
+        async with background_trio_service(client):
             await client.wait_listening()
-            yield network
+            async with background_trio_service(pong_responder):
+                async with background_trio_service(routing_table_manager):
+                    yield network

@@ -18,6 +18,8 @@ from ddht.v5_1.client import Client
 from ddht.v5_1.events import Events
 from ddht.v5_1.messages import v51_registry
 from ddht.v5_1.network import Network
+from ddht.v5_1.pong_responder import PongResponder
+from ddht.v5_1.routing_table_manager import RoutingTableManager
 from ddht.v5_1.rpc_handlers import get_v51_rpc_handlers
 
 ENR_DATABASE_DIR_NAME = "enr-db"
@@ -93,7 +95,18 @@ class Application(BaseApplication):
             events=events,
             message_type_registry=message_type_registry,
         )
-        network = Network(client=client, bootnodes=bootnodes,)
+        self.manager.run_daemon_child_service(client)
+        await client.wait_listening()
+
+        network = Network(client=client)
+
+        routing_table_manager = RoutingTableManager(
+            network=network, routing_table=network.routing_table, bootnodes=bootnodes,
+        )
+        self.manager.run_daemon_child_service(routing_table_manager)
+
+        pong_responder = PongResponder(network=network)
+        self.manager.run_daemon_child_service(pong_responder)
 
         if self._boot_info.is_rpc_enabled:
             handlers = merge(
@@ -111,7 +124,5 @@ class Application(BaseApplication):
         self.logger.info(
             "Local ENR: seq=%d enr=%s", enr_manager.enr.sequence_number, enr_manager.enr
         )
-
-        self.manager.run_daemon_child_service(network)
 
         await self.manager.wait_finished()

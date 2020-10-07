@@ -388,7 +388,7 @@ class ClientAPI(ServiceAPI):
         ...
 
 
-class NetworkAPI(ServiceAPI):
+class NetworkAPI(ABC):
     client: ClientAPI
     routing_table: RoutingTableAPI
 
@@ -429,12 +429,6 @@ class NetworkAPI(ServiceAPI):
     # High Level API
     #
     @abstractmethod
-    async def bond(
-        self, node_id: NodeID, *, endpoint: Optional[Endpoint] = None
-    ) -> bool:
-        ...
-
-    @abstractmethod
     async def ping(
         self, node_id: NodeID, *, endpoint: Optional[Endpoint] = None
     ) -> PongMessage:
@@ -459,7 +453,7 @@ class NetworkAPI(ServiceAPI):
 
     @abstractmethod
     async def get_enr(
-        self, node_id: NodeID, *, endpoint: Optional[Endpoint] = None
+        self, node_id: NodeID, *, enr_seq: int = 0, endpoint: Optional[Endpoint] = None
     ) -> ENRAPI:
         ...
 
