@@ -300,7 +300,13 @@ class PingPongAPI(ABC, Generic[TPongMessage]):
 
     @abstractmethod
     async def send_pong(
-        self, node_id: NodeID, endpoint: Endpoint, *, request_id: bytes,
+        self,
+        node_id: NodeID,
+        endpoint: Endpoint,
+        *,
+        ip_address: Optional[bytes] = None,
+        port: Optional[int] = None,
+        request_id: bytes,
     ) -> None:
         ...
 

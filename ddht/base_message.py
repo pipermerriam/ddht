@@ -15,8 +15,8 @@ class BaseMessage(rlp.Serializable):  # type: ignore
         return b"".join((int_to_big_endian(self.message_type), rlp.encode(self)))
 
 
-TMessage = TypeVar("TMessage", bound=BaseMessage)
-TResponseMessage = TypeVar("TResponseMessage", bound=BaseMessage)
+TMessage = TypeVar("TMessage")
+TResponseMessage = TypeVar("TResponseMessage")
 
 
 @dataclass(frozen=True)

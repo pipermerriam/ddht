@@ -205,14 +205,25 @@ class Client(Service, ClientAPI):
         return message_request_id
 
     async def send_pong(
-        self, node_id: NodeID, endpoint: Endpoint, *, request_id: bytes,
+        self,
+        node_id: NodeID,
+        endpoint: Endpoint,
+        *,
+        ip_address: Optional[bytes] = None,
+        port: Optional[int] = None,
+        request_id: bytes,
     ) -> None:
+        if ip_address is None:
+            ip_address = endpoint.ip_address
+        if port is None:
+            port = endpoint.port
+
         message = AnyOutboundMessage(
             PongMessage(
                 request_id,
                 self.enr_manager.enr.sequence_number,
-                endpoint.ip_address,
-                endpoint.port,
+                ip_address,
+                port,
             ),
             endpoint,
             node_id,
