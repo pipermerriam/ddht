@@ -28,7 +28,7 @@ from ddht.base_message import (
     AnyOutboundMessage,
     InboundMessage,
     OutboundMessage,
-    TMessage,
+    TBaseMessage,
 )
 from ddht.endpoint import Endpoint
 from ddht.message_registry import MessageTypeRegistry
@@ -66,8 +66,8 @@ MAX_REQUEST_ID_ATTEMPTS = 3
 
 
 def _get_event_for_outbound_message(
-    events: EventsAPI, message: OutboundMessage[TMessage],
-) -> EventAPI[OutboundMessage[TMessage]]:
+    events: EventsAPI, message: OutboundMessage[TBaseMessage],
+) -> EventAPI[OutboundMessage[TBaseMessage]]:
     message_type = type(message.message)
 
     if message_type is PingMessage:
@@ -95,8 +95,8 @@ def _get_event_for_outbound_message(
 
 
 def _get_event_for_inbound_message(
-    events: EventsAPI, message: InboundMessage[TMessage]
-) -> EventAPI[InboundMessage[TMessage]]:
+    events: EventsAPI, message: InboundMessage[TBaseMessage]
+) -> EventAPI[InboundMessage[TBaseMessage]]:
     message_type = type(message.message)
 
     if message_type is PingMessage:
@@ -213,8 +213,8 @@ class Dispatcher(Service, DispatcherAPI):
     ) -> None:
         @functools.lru_cache(16)
         def get_event(
-            message: OutboundMessage[TMessage],
-        ) -> EventAPI[OutboundMessage[TMessage]]:
+            message: OutboundMessage[TBaseMessage],
+        ) -> EventAPI[OutboundMessage[TBaseMessage]]:
             return _get_event_for_outbound_message(self._events, message)
 
         async with receive_channel:
@@ -243,8 +243,8 @@ class Dispatcher(Service, DispatcherAPI):
     ) -> None:
         @functools.lru_cache(16)
         def get_event(
-            message: InboundMessage[TMessage],
-        ) -> EventAPI[InboundMessage[TMessage]]:
+            message: InboundMessage[TBaseMessage],
+        ) -> EventAPI[InboundMessage[TBaseMessage]]:
             return _get_event_for_inbound_message(self._events, message)
 
         async with receive_channel:
@@ -439,13 +439,13 @@ class Dispatcher(Service, DispatcherAPI):
     @asynccontextmanager
     async def subscribe(
         self,
-        message_type: Type[TMessage],
+        message_type: Type[TBaseMessage],
         endpoint: Optional[Endpoint] = None,
         node_id: Optional[NodeID] = None,
-    ) -> AsyncIterator[trio.abc.ReceiveChannel[InboundMessage[TMessage]]]:
+    ) -> AsyncIterator[trio.abc.ReceiveChannel[InboundMessage[TBaseMessage]]]:
         message_id = self._registry.get_message_id(message_type)
         send_channel, receive_channel = trio.open_memory_channel[
-            InboundMessage[TMessage]
+            InboundMessage[TBaseMessage]
         ](256)
         subscription = _Subcription(send_channel, endpoint, node_id)
         self._subscriptions[message_id].add(subscription)
@@ -457,8 +457,10 @@ class Dispatcher(Service, DispatcherAPI):
 
     @asynccontextmanager
     async def subscribe_request(
-        self, request: AnyOutboundMessage, response_message_type: Type[TMessage],
-    ) -> AsyncIterator[trio.abc.ReceiveChannel[InboundMessage[TMessage]]]:  # noqa: E501
+        self, request: AnyOutboundMessage, response_message_type: Type[TBaseMessage],
+    ) -> AsyncIterator[
+        trio.abc.ReceiveChannel[InboundMessage[TBaseMessage]]
+    ]:  # noqa: E501
         node_id = request.receiver_node_id
         request_id = request.message.request_id
 
@@ -466,7 +468,7 @@ class Dispatcher(Service, DispatcherAPI):
             "Sending request: %s with request id %s", request, request_id.hex(),
         )
 
-        send_channel, receive_channel = trio.open_memory_channel[TMessage](256)
+        send_channel, receive_channel = trio.open_memory_channel[TBaseMessage](256)
         key = (node_id, request_id)
         if key in self._active_request_ids:
             raise Exception("Invariant")
@@ -489,8 +491,8 @@ class Dispatcher(Service, DispatcherAPI):
     async def _manage_request_response(
         self,
         request: AnyOutboundMessage,
-        response_message_type: Type[TMessage],
-        send_channel: trio.abc.SendChannel[InboundMessage[TMessage]],
+        response_message_type: Type[TBaseMessage],
+        send_channel: trio.abc.SendChannel[InboundMessage[TBaseMessage]],
     ) -> None:
         request_id = request.message.request_id
 

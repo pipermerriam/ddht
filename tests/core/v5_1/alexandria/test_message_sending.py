@@ -1,9 +1,9 @@
 import pytest
 import trio
 
-from ddht.v5_1.messages import TalkRequestMessage
 from ddht.alexandria.alexandria import Alexandria
-from ddht.alexandria.messages import PingMessage, decode_message, PongMessage
+from ddht.alexandria.messages import PingMessage, PongMessage, decode_message
+from ddht.v5_1.messages import TalkRequestMessage
 
 
 @pytest.fixture

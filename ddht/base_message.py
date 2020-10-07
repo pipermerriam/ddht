@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from eth_typing import NodeID
 from eth_utils import int_to_big_endian
@@ -15,13 +15,14 @@ class BaseMessage(rlp.Serializable):  # type: ignore
         return b"".join((int_to_big_endian(self.message_type), rlp.encode(self)))
 
 
-TMessage = TypeVar("TMessage", bound=BaseMessage)
-TResponseMessage = TypeVar("TResponseMessage", bound=BaseMessage)
+TMessage = TypeVar("TMessage")
+TBaseMessage = TypeVar("TBaseMessage", bound=BaseMessage)
+TResponseMessage = TypeVar("TResponseMessage")
 
 
 @dataclass(frozen=True)
 class OutboundMessage(Generic[TMessage]):
-    message: BaseMessage
+    message: TMessage
     receiver_endpoint: Endpoint
     receiver_node_id: NodeID
 
@@ -48,5 +49,5 @@ class InboundMessage(Generic[TMessage]):
         )
 
 
-AnyInboundMessage = InboundMessage[BaseMessage]
-AnyOutboundMessage = OutboundMessage[BaseMessage]
+AnyInboundMessage = InboundMessage[Any]
+AnyOutboundMessage = OutboundMessage[Any]

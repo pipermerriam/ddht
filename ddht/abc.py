@@ -4,6 +4,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncContextManager,
+    AsyncIterator,
     Deque,
     Generic,
     Iterator,
@@ -15,13 +16,15 @@ from typing import (
     TypeVar,
 )
 
+from async_generator import asynccontextmanager
 from async_service import ServiceAPI
 from eth_enr.abc import IdentitySchemeAPI
 from eth_typing import NodeID
 import trio
 
-from ddht.base_message import BaseMessage
+from ddht.base_message import BaseMessage, InboundMessage, AnyOutboundMessage, TMessage
 from ddht.boot_info import BootInfo
+from ddht.endpoint import Endpoint
 from ddht.typing import JSON, SessionKeys
 
 TAddress = TypeVar("TAddress", bound="AddressAPI")
@@ -265,6 +268,26 @@ class RPCResponse(TypedDict, total=False):
 class RPCHandlerAPI(ABC):
     @abstractmethod
     async def __call__(self, request: RPCRequest) -> RPCResponse:
+        ...
+
+
+class SubscriptionManagerAPI(ServiceAPI):
+    #
+    # Request Response
+    #
+    @asynccontextmanager
+    async def subscribe(
+        self,
+        message_type: Type[TMessage],
+        endpoint: Optional[Endpoint] = None,
+        node_id: Optional[NodeID] = None,
+    ) -> AsyncIterator[trio.abc.ReceiveChannel[InboundMessage[TMessage]]]:
+        ...
+
+    @asynccontextmanager
+    async def subscribe_request(
+        self, request: AnyOutboundMessage, response_message_type: Type[TMessage],
+    ) -> AsyncIterator[trio.abc.ReceiveChannel[InboundMessage[TMessage]]]:  # noqa: E501
         ...
 
 

@@ -2,7 +2,7 @@ import itertools
 import logging
 import operator
 import secrets
-from typing import Collection, Iterable, List, Optional, Set, Tuple, Dict
+from typing import Collection, Dict, Iterable, List, Optional, Set, Tuple
 
 from async_service import Service
 from eth_enr import ENRAPI, ENRDatabaseAPI, ENRManagerAPI
@@ -23,9 +23,21 @@ from ddht.kademlia import (
     compute_log_distance,
     iter_closest_nodes,
 )
-from ddht.v5_1.abc import ClientAPI, DispatcherAPI, EventsAPI, NetworkAPI, PoolAPI, TalkProtocolAPI
+from ddht.v5_1.abc import (
+    ClientAPI,
+    DispatcherAPI,
+    EventsAPI,
+    NetworkAPI,
+    PoolAPI,
+    TalkProtocolAPI,
+)
 from ddht.v5_1.constants import ROUTING_TABLE_KEEP_ALIVE
-from ddht.v5_1.messages import FindNodeMessage, PingMessage, PongMessage, TalkRequestMessage
+from ddht.v5_1.messages import (
+    FindNodeMessage,
+    PingMessage,
+    PongMessage,
+    TalkRequestMessage,
+)
 
 
 class Network(Service, NetworkAPI):
@@ -406,14 +418,14 @@ class Network(Service, NetworkAPI):
                     request_id=request.message.request_id,
                 )
 
-    async def _handle_unhandled_talk_requests(self):
+    async def _handle_unhandled_talk_requests(self) -> None:
         async with self.dispatcher.subscribe(TalkRequestMessage) as subscription:
             async for request in subscription:
                 if request.message.protocol not in self._talk_protocols:
                     await self.client.send_talk_response(
                         request.sender_endpoint,
                         request.sender_node_id,
-                        payload=b'',
+                        payload=b"",
                         request_id=request.message.request_id,
                     )
 

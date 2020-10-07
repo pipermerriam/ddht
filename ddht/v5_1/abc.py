@@ -18,7 +18,7 @@ from eth_keys import keys
 from eth_typing import NodeID
 import trio
 
-from ddht.abc import EventAPI, HandshakeSchemeAPI, RoutingTableAPI
+from ddht.abc import EventAPI, HandshakeSchemeAPI, RoutingTableAPI, SubscriptionManagerAPI
 from ddht.base_message import (
     AnyOutboundMessage,
     InboundMessage,
@@ -199,7 +199,7 @@ class PoolAPI(ABC):
         ...
 
 
-class DispatcherAPI(ServiceAPI):
+class DispatcherAPI(SubscriptionManagerAPI):
     @abstractmethod
     async def send_message(self, message: AnyOutboundMessage) -> None:
         ...
@@ -210,23 +210,6 @@ class DispatcherAPI(ServiceAPI):
 
     @abstractmethod
     def reserve_request_id(self, node_id: NodeID) -> ContextManager[bytes]:
-        ...
-
-    @abstractmethod
-    def subscribe(
-        self,
-        payload_type: Type[TMessage],
-        endpoint: Optional[Endpoint] = None,
-        node_id: Optional[NodeID] = None,
-    ) -> AsyncContextManager[trio.abc.ReceiveChannel[InboundMessage[TMessage]]]:
-        ...
-
-    @abstractmethod
-    def subscribe_request(
-        self, request: AnyOutboundMessage, response_payload_type: Type[TMessage],
-    ) -> AsyncContextManager[
-        trio.abc.ReceiveChannel[InboundMessage[TMessage]]
-    ]:  # noqa: E501
         ...
 
 

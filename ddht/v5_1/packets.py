@@ -24,6 +24,7 @@ from ddht.v5_1.constants import (
     WHO_ARE_YOU_PACKET_SIZE,
 )
 
+
 @dataclass(frozen=True)
 class MessagePacket:
     source_node_id: NodeID

@@ -24,14 +24,19 @@ class AlexandriaAPI(TalkProtocolAPI):
         endpoint: Endpoint,
         message: AlexandriaMessage[Any],
         *,
-        request_id: Optional[int] = None,
-    ) -> int:
+        request_id: Optional[bytes] = None,
+    ) -> bytes:
         ...
 
     @abstractmethod
     async def send_ping(
-        self, node_id: NodeID, endpoint: Endpoint, *, enr_seq: int
-    ) -> int:
+        self,
+        node_id: NodeID,
+        endpoint: Endpoint,
+        *,
+        enr_seq: int,
+        request_id: Optional[bytes] = None,
+    ) -> bytes:
         ...
 
     @abstractmethod
@@ -41,8 +46,8 @@ class AlexandriaAPI(TalkProtocolAPI):
         endpoint: Endpoint,
         *,
         enr_seq: int,
-        request_id: Optional[int] = None,
-    ) -> int:
+        request_id: Optional[bytes] = None,
+    ) -> bytes:
         ...
 
     #
