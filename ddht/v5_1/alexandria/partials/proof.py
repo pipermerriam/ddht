@@ -2,7 +2,7 @@ import bisect
 from dataclasses import dataclass
 import io
 import operator
-from typing import IO, Iterable, Optional, Tuple, Union
+from typing import IO, Iterable, Optional, Tuple, Union, Sequence, Collection, Any
 
 from eth_typing import Hash32
 from eth_utils import ValidationError, to_tuple
@@ -13,10 +13,13 @@ from ssz.sedes import List as ListSedes
 from ddht.exceptions import ParseError
 from ddht.v5_1.alexandria.leb128 import encode_leb128, parse_leb128
 from ddht.v5_1.alexandria.constants import POWERS_OF_TWO
-from ddht.v5_1.alexandria.chunking import chunk_index_to_path
+from ddht.v5_1.alexandria.partials.chunking import (
+    chunk_index_to_path, compute_chunks, path_to_left_chunk_index,
+)
 from ddht.v5_1.alexandria.sedes import content_sedes
-from ddht.v5_1.alexandria.typing import TreePath
-from ddht.v5_1.alexandria._utils import (
+from ddht.v5_1.alexandria.partials.typing import TreePath
+from ddht.v5_1.alexandria.partials.tree import construct_node_tree, ProofTree
+from ddht.v5_1.alexandria.partials._utils import (
     display_path, decompose_into_powers_of_two, get_longest_common_path,
 )
 
@@ -163,30 +166,60 @@ def _parse_element_stream(stream: IO[bytes]) -> Iterable[ProofElement]:
         try:
             element = ProofElement.deserialize(stream, previous=previous_path)
         except ParseError:
-            break
+            remainder = stream.read()
+            if remainder:
+                raise
+            else:
+                break
         else:
             previous_path = element.path
             yield element
 
 
-@dataclass(frozen=True)
 class Proof:
     """
     Representation of a merkle proof for an SSZ byte string (aka List[uint8,
     max_length=...]).
     """
-
     sedes: ListSedes
     hash_tree_root: Hash32
     elements: Tuple[ProofElement, ...]
-    tree: ProofTree
+
+    _tree_cache: Optional[ProofTree] = None
+
+    def __init__(self,
+                 hash_tree_root: Hash32,
+                 elements: Collection[ProofElement],
+                 sedes: ListSedes,
+                 tree: Optional[ProofTree] = None) -> None:
+        self.hash_tree_root = hash_tree_root
+        self.elements = tuple(sorted(elements, key=operator.attrgetter('path')))
+        self.sedes = sedes
+        self._tree_cache = tree
+
+    def __eq__(self, other: Any) -> bool:
+        if type(self) is not type(other):
+            return False
+        else:
+            return self.hash_tree_root == other.hash_tree_root and self.elements == other.elements
+
+    @property
+    def path_bit_length(self) -> int:
+        return self.sedes.chunk_count.bit_length()
+
+    def get_tree(self) -> ProofTree:
+        if self._tree_cache is None:
+            tree_data = tuple((el.path, el.value) for el in self.elements)
+            root_node = construct_node_tree(tree_data, (), self.path_bit_length)
+            self._tree_cache = ProofTree(root_node)
+        return self._tree_cache
 
     def serialize(self) -> bytes:
         # TODO: we can elimenate the need for the tree object by 1) directly
         # fetching the length node since we know its path and 2) directly
         # filtering the data elements out since we know the bounds on their
         # paths.
-        tree = ProofTree.from_proof(self)
+        tree = self.get_tree()
         length = tree.get_data_length()
         num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
         last_data_chunk_index = max(0, num_data_chunks - 1)
@@ -196,7 +229,7 @@ class Proof:
             node for node in tree.walk(end_at=last_data_chunk_path) if node.is_terminal
         )
         data_only_elements = tuple(
-            ProofElement(path=node.path, value=node.value) for node in data_nodes
+            ProofElement(path=node.path, value=node.get_value()) for node in data_nodes
         )
 
         serialized_elements = b"".join(
@@ -236,7 +269,7 @@ class Proof:
 
         elements = data_elements + padding_elements + (length_element,)
 
-        return cls(sedes, hash_tree_root, elements)
+        return cls(hash_tree_root, elements, sedes)
 
     def to_partial(self, start_at: int, partial_data_length: int) -> "Proof":
         """
@@ -246,7 +279,7 @@ class Proof:
         """
         # First retrieve the overall data length from the proof.  The `length`
         # shoudl always be found on the path `(True,)` which should always be present in the
-        tree = ProofTree.from_proof(self)
+        tree = self.get_tree()
         length = tree.get_data_length()
 
         path_bit_length = self.sedes.chunk_count.bit_length()
@@ -351,24 +384,22 @@ class Proof:
             + padding_nodes
         )
         partial_elements = tuple(
-            ProofElement(path=node.path, value=node.value) for node in partial_nodes
+            ProofElement(path=node.path, value=node.get_value()) for node in partial_nodes
         )
-        return Proof(self.sedes, self.hash_tree_root, partial_elements)
+
+        return Proof(self.hash_tree_root, partial_elements, self.sedes)
 
     def get_proven_data(self) -> DataPartial:
         """
         Returns a view over the proven data which can be accessed similar to a
         bytestring by either indexing or slicing.
         """
-        tree = ProofTree.from_proof(self)
-        length = tree.get_data_length()
-        segments = self.get_proven_data_segments(length, tree)
+        length = self.get_tree().get_data_length()
+        segments = self.get_proven_data_segments(length)
         return DataPartial(length, segments)
 
     @to_tuple
-    def get_proven_data_segments(
-        self, length: int, tree: "ProofTree"
-    ) -> Iterable[Tuple[int, bytes]]:
+    def get_proven_data_segments(self, length: int) -> Iterable[Tuple[int, bytes]]:
         num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
 
         path_bit_length = self.sedes.chunk_count.bit_length()
@@ -384,6 +415,8 @@ class Proof:
         segment_start_index = 0
         data_segment = b""
 
+        tree = self.get_tree()
+
         # Walk over the section of the tree where the data chunks are located,
         # merging contigious chunks into a single segment.
         for node in tree.walk(end_at=last_data_chunk_path):
@@ -393,11 +426,11 @@ class Proof:
 
             if chunk_index == last_data_chunk_index:
                 if last_data_chunk_data_size:
-                    chunk_data = node.value[:last_data_chunk_data_size]
+                    chunk_data = node.get_value()[:last_data_chunk_data_size]
                 else:
-                    chunk_data = node.value
+                    chunk_data = node.get_value()
             else:
-                chunk_data = node.value
+                chunk_data = node.get_value()
 
             if chunk_index == next_chunk_index:
                 data_segment += chunk_data
@@ -417,16 +450,12 @@ class Proof:
 
 
 def validate_proof(proof: Proof) -> None:
-    tree = ProofTree.from_proof(proof)
-
-    if tree.hash_tree_root != proof.hash_tree_root:
+    if proof.get_tree().get_hash_tree_root() != proof.hash_tree_root:
         raise ValidationError("Merkle root mismatch")
 
 
 def is_proof_valid(proof) -> None:
-    tree = ProofTree.from_proof(proof)
-
-    return tree.hash_tree_root == proof.hash_tree_root
+    return proof.get_tree().get_hash_tree_root() == proof.hash_tree_root
 
 
 @to_tuple
@@ -456,17 +485,19 @@ def compute_proof(data: bytes, sedes: ListSedes) -> Proof:
     Compute the full proof, including the mixed-in length value.
     """
     chunks = compute_chunks(data)
+
     chunk_count = sedes.chunk_count
-
-    hash_tree = tuple(map(tuple, compute_hash_tree(chunks, chunk_count)))
-    data_hash_tree_root = hash_tree[-1][0]
-
-    hash_tree_root = mix_in_length(data_hash_tree_root, len(data))
+    path_bit_length = chunk_count.bit_length()
 
     data_elements = compute_proof_elements(chunks, chunk_count)
     length_element = ProofElement(
         path=(True,), value=len(data).to_bytes(CHUNK_SIZE, "little"),
     )
     all_elements = data_elements + (length_element,)
+    tree_data = tuple((el.path, el.value) for el in all_elements)
 
-    return Proof(sedes, hash_tree_root, all_elements)
+    root_node = construct_node_tree(tree_data, (), path_bit_length)
+    tree = ProofTree(root_node)
+    hash_tree_root = tree.get_hash_tree_root()
+
+    return Proof(hash_tree_root, all_elements, sedes, tree=tree)

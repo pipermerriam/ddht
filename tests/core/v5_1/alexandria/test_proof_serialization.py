@@ -1,17 +1,18 @@
-import hashlib
 import io
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 import pytest
 
-from ddht.v5_1.alexandria.partials import (
-    GB,
+from ddht.v5_1.alexandria.constants import GB
+from ddht.v5_1.alexandria.partials.proof import (
     Proof,
     ProofElement,
     compute_proof,
-    content_sedes,
     validate_proof,
+)
+from ddht.v5_1.alexandria.sedes import (
+    content_sedes,
 )
 
 VALUE = bytes(bytearray((i for i in range(32))))
@@ -116,41 +117,3 @@ def test_proof_serialization_and_deserialization(data):
     validate_proof(result)
 
     assert result == proof
-
-
-MB = 1024 * 1024
-
-
-def test_partial_proof_serialized_sizes():
-    data_1mb = b"".join(
-        (hashlib.sha256(i.to_bytes(32, "big")).digest() for i in range(MB // 32))
-    )
-    proof = compute_proof(data_1mb, sedes=content_sedes)
-
-    proof_32b = proof.to_partial(0, 32)
-    proof_64b = proof.to_partial(0, 64)
-    proof_128b = proof.to_partial(0, 128)
-    proof_256b = proof.to_partial(0, 256)
-    proof_512b = proof.to_partial(0, 512)
-    proof_768b = proof.to_partial(0, 768)
-    proof_1024b = proof.to_partial(0, 1024)
-
-    # TODO: remove padding nodes.
-
-    proof_32b_bytes = proof_32b.serialize()
-    proof_64b_bytes = proof_64b.serialize()
-    proof_128b_bytes = proof_128b.serialize()
-    proof_256b_bytes = proof_256b.serialize()
-    proof_512b_bytes = proof_512b.serialize()
-    proof_768b_bytes = proof_768b.serialize()
-    proof_1024b_bytes = proof_1024b.serialize()
-
-    proof_32b_len = len(proof_32b_bytes)
-    proof_64b_len = len(proof_64b_bytes)
-    proof_128b_len = len(proof_128b_bytes)
-    proof_256b_len = len(proof_256b_bytes)
-    proof_512b_len = len(proof_512b_bytes)
-    proof_768b_len = len(proof_768b_bytes)
-    proof_1024b_len = len(proof_1024b_bytes)
-
-    assert False

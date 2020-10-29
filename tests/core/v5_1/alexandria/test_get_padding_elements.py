@@ -1,4 +1,4 @@
-from ddht.v5_1.alexandria.partials import get_padding_elements
+from ddht.v5_1.alexandria.partials.proof import get_padding_elements
 
 
 def test_get_padding_elements_1_15():

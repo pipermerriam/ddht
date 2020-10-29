@@ -2,8 +2,9 @@ from typing import Iterable
 
 from eth_utils import to_tuple
 
+from ddht.v5_1.alexandria.constants import POWERS_OF_TWO
+
 from .typing import TreePath
-from .constants import POWERS_OF_TWO
 
 
 def display_path(path: TreePath) -> str:

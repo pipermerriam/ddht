@@ -7,7 +7,7 @@ from eth_utils.toolz import sliding_window
 from ssz.constants import CHUNK_SIZE, ZERO_BYTES32
 
 from ddht.v5_1.alexandria.constants import GB, POWERS_OF_TWO
-from ddht.v5_1.alexandria.typing import TreePath
+from ddht.v5_1.alexandria.partials.typing import TreePath
 
 
 @to_tuple

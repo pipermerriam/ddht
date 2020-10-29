@@ -1,13 +1,19 @@
 import enum
-from typing import Collection, Optional, Iterable
+from typing import Collection, Optional, Iterable, Tuple
 
 from eth_typing import Hash32
 from eth_utils import ValidationError, to_tuple
+from eth_utils.toolz import sliding_window
 from ssz.constants import ZERO_HASHES
 from ssz.hash import hash_eth2
 
-from ddht.v5_1.alexandria.typing import TreePath
-from ddht.v5_1.alexandria._utils import display_path
+from ddht.v5_1.alexandria.partials.typing import TreePath
+from ddht.v5_1.alexandria.partials._utils import (
+    display_path, get_longest_common_path,
+)
+from ddht.v5_1.alexandria.partials.chunking import (
+    path_to_left_chunk_index, group_by_subtree, chunk_index_to_path
+)
 
 
 class NodePosition(enum.IntEnum):
@@ -16,8 +22,8 @@ class NodePosition(enum.IntEnum):
     root = 2
 
 
-def construct_node(
-    elements: Collection[ProofElement], path: TreePath, path_bit_length: int
+def construct_node_tree(
+    tree_data: Collection[Tuple[TreePath, Hash32]], current_path: TreePath, path_bit_length: int
 ) -> "Node":
     """
     Construct the tree of nodes for a ProofTree.
@@ -27,58 +33,58 @@ def construct_node(
     #
     # - First we check to see if the tree terminates at this path.  If so there
     # should only be a single node.
-    terminal_elements = tuple(el for el in elements if el.path == path)
+    terminal_data = tuple((path, value) for (path, value) in tree_data if path == current_path)
 
-    if terminal_elements:
-        if len(terminal_elements) > 1:
-            raise ValidationError(f"Multiple terminal elements: {terminal_elements}")
-        elif not path:
+    if terminal_data:
+        if len(terminal_data) > 1:
+            raise ValidationError(f"Multiple terminal nodes: {terminal_data}")
+        elif not current_path:
             raise ValidationError(
-                f"Invalid tree termination at root path: {terminal_elements}"
+                f"Invalid tree termination at root path: {terminal_data}"
             )
 
-        terminal = terminal_elements[0]
+        _, terminal_value = terminal_data[0]
         return Node(
-            path=path,
-            value=terminal.value,
+            path=current_path,
+            value=terminal_value,
             left=None,
             right=None,
-            position=NodePosition(path[-1]),
+            position=NodePosition(current_path[-1]),
             path_bit_length=path_bit_length,
         )
 
-    depth = len(path)
+    depth = len(current_path)
 
     # If the tree does not terminate then it always branches in both
-    # directions.  Split the elements into their left/right sides and construct
+    # directions.  Split the data into their left/right sides and construct
     # the subtrees, and then the node at this level.
-    left_elements = tuple(el for el in elements if el.path[depth] is False)
-    right_elements = tuple(el for el in elements if el.path[depth] is True)
+    left_data = tuple((path, value) for (path, value) in tree_data if path[depth] is False)
+    right_data = tuple((path, value) for (path, value) in tree_data if path[depth] is True)
 
     left_node: Optional[Node]
     right_node: Optional[Node]
 
-    if left_elements:
-        left_node = construct_node(
-            left_elements, path=path + (False,), path_bit_length=path_bit_length,
+    if left_data:
+        left_node = construct_node_tree(
+            left_data, current_path=current_path + (False,), path_bit_length=path_bit_length,
         )
     else:
         left_node = None
 
-    if right_elements:
-        right_node = construct_node(
-            right_elements, path=path + (True,), path_bit_length=path_bit_length,
+    if right_data:
+        right_node = construct_node_tree(
+            right_data, current_path=current_path + (True,), path_bit_length=path_bit_length,
         )
     else:
         right_node = None
 
-    if path:
-        position = NodePosition(path[-1])
+    if current_path:
+        position = NodePosition(current_path[-1])
     else:
         position = NodePosition.root
 
     return Node(
-        path=path,
+        path=current_path,
         value=None,
         left=left_node,
         right=right_node,
@@ -141,8 +147,7 @@ class Node:
             right = "?" if self.is_terminal else "X"
         return f"Node[path={display_path(self.path)} children=({left}^{right})]"
 
-    @property
-    def value(self) -> Hash32:
+    def get_value(self) -> Hash32:
         """
         The value at this node.  For intermediate nodes, this is a hash.  For
         leaf nodes this is the actual data.  Intermediate nodes that were not
@@ -153,7 +158,7 @@ class Node:
         elif self._computed_value is None:
             if self._left is None or self._right is None:
                 raise BrokenTree(f"Tree path breaks below: {display_path(self.path)}")
-            self._computed_value = hash_eth2(self._left.value + self._right.value)
+            self._computed_value = hash_eth2(self._left.get_value() + self._right.get_value())
         return self._computed_value
 
     @property
@@ -263,25 +268,14 @@ class ProofTree:
     def __init__(self, root_node: Node) -> None:
         self.root_node = root_node
 
-    @classmethod
-    def from_proof(cls, proof: Proof) -> "ProofTree":
-        path_bit_length = proof.sedes.chunk_count.bit_length()
-        root_node = construct_node(
-            proof.elements, path=(), path_bit_length=path_bit_length
-        )
-        return cls(root_node)
-
-    @property
-    def hash_tree_root(self) -> Hash32:
-        if self._hash_tree_root is None:
-            self._hash_tree_root = self.root_node.value
-        return self._hash_tree_root
+    def get_hash_tree_root(self) -> Hash32:
+        return self.root_node.get_value()
 
     def get_data_length(self) -> int:
         length_node = self.get_node((True,))
         if not length_node.is_leaf:
             raise Exception("Bad Proof")
-        return int.from_bytes(length_node.value, "little")
+        return int.from_bytes(length_node.get_value(), "little")
 
     def get_node(self, path: TreePath) -> Node:
         return self.get_nodes_on_path(path)[-1]

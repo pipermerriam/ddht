@@ -3,11 +3,13 @@ from hypothesis import strategies as st
 import pytest
 from ssz.constants import ZERO_HASHES
 
-from ddht.v5_1.alexandria.partials import (
+from ddht.v5_1.alexandria.partials.tree import (
+    construct_node_tree,
     BrokenTree,
-    Proof,
-    ProofTree,
     TerminalPathError,
+)
+from ddht.v5_1.alexandria.partials.proof import (
+    ProofTree,
     compute_proof,
 )
 from ddht.v5_1.alexandria.sedes import ByteList
@@ -87,8 +89,8 @@ EXPECTED_WALK_ORDER = tuple(
 
 
 def test_proof_tree_traversal(short_proof):
-    proof = short_proof
-    tree = ProofTree.from_proof(proof)
+    tree = short_proof.get_tree()
+
     nodes_in_walk_order = tuple(tree.walk())
     assert len(nodes_in_walk_order) == len(EXPECTED_WALK_ORDER)
     for idx, (node, expected_path) in enumerate(
@@ -114,8 +116,7 @@ def test_proof_tree_partial_traversal(short_proof, start_at_index, num_nodes_to_
 
     expected_paths = EXPECTED_WALK_ORDER[start_at_index:end_at_index]
 
-    proof = short_proof
-    tree = ProofTree.from_proof(proof)
+    tree = short_proof.get_tree()
     nodes_in_walk_order = tuple(tree.walk(start_at, end_at))
     assert len(nodes_in_walk_order) == len(expected_paths)
     for idx, (node, expected_path) in enumerate(
@@ -160,15 +161,14 @@ def test_proof_tree_visitor_api(short_proof):
 
       |<-----DATA---->| |<-----------PADDING-------------->|
     """
-    proof = short_proof
-    tree = ProofTree.from_proof(proof)
+    tree = short_proof.get_tree()
 
-    assert tree.hash_tree_root == proof.hash_tree_root
+    assert tree.get_hash_tree_root() == short_proof.hash_tree_root
 
     walked_nodes = tuple(tree.walk())
     walked_paths = tuple(sorted(node.path for node in walked_nodes if node.is_terminal))
 
-    expected_paths = tuple(sorted(el.path for el in proof.elements))
+    expected_paths = tuple(sorted(el.path for el in short_proof.elements))
 
     assert walked_paths == expected_paths
 
@@ -196,7 +196,7 @@ def test_proof_tree_visitor_api(short_proof):
     assert not visitor_01.node.is_computed
     assert visitor_01.node.is_intermediate
     assert visitor_01.node.is_terminal
-    assert visitor_01.node.value == ZERO_HASHES[3]
+    assert visitor_01.node.get_value() == ZERO_HASHES[3]
     assert visitor_01.node.is_padding
     assert not visitor_01.node.is_leaf
     assert visitor_01.node.depth == 2
@@ -271,7 +271,7 @@ def test_proof_tree_visitor_api(short_proof):
     assert visitor_0011.node.is_intermediate
     assert visitor_0011.node.is_terminal
     assert visitor_0011.node.is_padding
-    assert visitor_0011.node.value == ZERO_HASHES[1]
+    assert visitor_0011.node.get_value() == ZERO_HASHES[1]
     assert not visitor_0011.node.is_leaf
     assert visitor_0011.node.depth == 4
 
@@ -317,7 +317,7 @@ def test_proof_tree_visitor_api(short_proof):
     assert not visitor_00101.node.is_intermediate
     assert visitor_00101.node.is_terminal
     assert visitor_00101.node.is_padding
-    assert visitor_00101.node.value == ZERO_HASHES[0]
+    assert visitor_00101.node.get_value() == ZERO_HASHES[0]
     assert visitor_00101.node.is_leaf
     assert visitor_00101.node.depth == 5
 
@@ -346,7 +346,7 @@ def test_proof_tree_visitor_api(short_proof):
     assert not visitor_00100.node.is_padding
     assert visitor_00100.node.is_leaf
     assert visitor_00100.node.depth == 5
-    assert visitor_00100.node.value == b"\x05" * 32
+    assert visitor_00100.node.get_value() == b"\x05" * 32
 
     with pytest.raises(TerminalPathError):
         visitor_00100.visit_right()
@@ -405,16 +405,15 @@ def test_proof_tree_visitor_api(short_proof):
         with pytest.raises(TerminalPathError):
             visitor.visit_left()
 
-    assert visitor_00000.node.value == b"\x01" * 32
-    assert visitor_00001.node.value == b"\x02" * 32
-    assert visitor_00010.node.value == b"\x03" * 32
-    assert visitor_00011.node.value == b"\x04" * 32
+    assert visitor_00000.node.get_value() == b"\x01" * 32
+    assert visitor_00001.node.get_value() == b"\x02" * 32
+    assert visitor_00010.node.get_value() == b"\x03" * 32
+    assert visitor_00011.node.get_value() == b"\x04" * 32
 
 
 def test_tree_proof_with_empty_data():
     proof = compute_proof(b"", sedes=short_content_sedes)
-
-    tree = ProofTree.from_proof(proof)
+    tree = proof.get_tree()
 
     node = tree.get_node((False, False, False, False, False))
 
@@ -438,17 +437,12 @@ def test_tree_proof_with_missing_leaf_node(short_proof):
 
     # Remove the element that would have been @ 0011
     proof_elements = all_proof_elements[:3] + all_proof_elements[4:]
-    bad_proof = Proof(
-        sedes=short_proof.sedes,
-        hash_tree_root=short_proof.hash_tree_root,
-        elements=proof_elements,
-    )
-
-    tree = ProofTree.from_proof(bad_proof)
+    tree_data = tuple((el.path, el.value) for el in proof_elements)
+    tree = ProofTree(construct_node_tree(tree_data, (), short_proof.sedes.chunk_count.bit_length()))
 
     with pytest.raises(BrokenTree):
         # TODO: property access with side-effects is surprising
-        tree.hash_tree_root
+        tree.get_hash_tree_root()
 
     with pytest.raises(BrokenTree):
         tuple(tree.walk())
@@ -468,17 +462,12 @@ def test_tree_proof_with_missing_intermediate_node(short_proof):
 
     # Remove the element that would have been @ 011
     proof_elements = all_proof_elements[:6] + all_proof_elements[7:]
-    bad_proof = Proof(
-        sedes=short_proof.sedes,
-        hash_tree_root=short_proof.hash_tree_root,
-        elements=proof_elements,
-    )
-
-    tree = ProofTree.from_proof(bad_proof)
+    tree_data = tuple((el.path, el.value) for el in proof_elements)
+    tree = ProofTree(construct_node_tree(tree_data, (), short_proof.sedes.chunk_count.bit_length()))
 
     with pytest.raises(BrokenTree):
         # TODO: property access with side-effects is surprising
-        tree.hash_tree_root
+        tree.get_hash_tree_root()
 
     with pytest.raises(BrokenTree):
         tuple(tree.walk())
@@ -517,8 +506,7 @@ def test_proof_tree_subtree_proof(short_proof):
 
       |<-----DATA---->| |<-----------PADDING-------------->|
     """
-    proof = short_proof
-    tree = ProofTree.from_proof(proof)
+    tree = short_proof.get_tree()
 
     # two sibling nodes should return the single parent node for those siblings
     subtree_proof = tree.get_subtree_proof_nodes(
