@@ -1,0 +1,41 @@
+from typing import Iterable
+
+from eth_utils import to_tuple
+
+from .typing import TreePath
+from .constants import POWERS_OF_TWO
+
+
+def display_path(path: TreePath) -> str:
+    """
+    Converts a tree path to a string of 1s and 0s for more legible display.
+    """
+    return "".join((str(int(bit)) for bit in path))
+
+
+@to_tuple
+def decompose_into_powers_of_two(value: int) -> Iterable[int]:
+    for i in range(value.bit_length()):
+        power_of_two = POWERS_OF_TWO[i]
+        if value & power_of_two:
+            yield power_of_two
+
+
+@to_tuple
+def get_longest_common_path(*paths: TreePath) -> Iterable[bool]:
+    """
+    Return the longs common prefix for the provided paths.
+    """
+    if not paths:
+        return
+    elif len(paths) == 1:
+        yield from paths[0]
+        return
+    elif not any(paths):
+        return
+
+    for crumbs in zip(*paths):
+        if all(crumbs) or not any(crumbs):
+            yield crumbs[0]
+        else:
+            break

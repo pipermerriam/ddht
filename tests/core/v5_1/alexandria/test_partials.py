@@ -4,20 +4,19 @@ import pytest
 from ssz import get_hash_tree_root, sedes
 from ssz.utils import pack
 
+from ddht.v5_1.alexandria.constants import GB
 from ddht.v5_1.alexandria.partials import (
-    GB,
     ProofTree,
     chunk_index_to_path,
     compute_chunks,
     compute_proof,
-    content_sedes,
     decompose_into_powers_of_two,
     get_longest_common_path,
     group_by_subtree,
     is_proof_valid,
     validate_proof,
 )
-from ddht.v5_1.alexandria.sedes import ByteList
+from ddht.v5_1.alexandria.sedes import ByteList, content_sedes
 
 
 def p(*crumbs):

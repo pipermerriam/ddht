@@ -1,5 +1,7 @@
 from ssz.sedes import Container, List, uint8, uint16, uint32
 
+from ddht.v5_1.alexandria.constants import GB
+
 
 class ByteList(List):  # type: ignore
     def __init__(self, max_length: int) -> None:
@@ -19,3 +21,6 @@ PingSedes = Container(field_sedes=(uint32,))
 PongSedes = Container(field_sedes=(uint32,))
 FindNodesSedes = Container(field_sedes=(List(uint16, max_length=256),))
 FoundNodesSedes = Container(field_sedes=(uint8, List(byte_list, max_length=32)))
+
+# sedes used for encoding alexandria content
+content_sedes = ByteList(max_length=GB)
