@@ -1,8 +1,8 @@
 import enum
-from typing import Collection, Optional
+from typing import Collection, Optional, Iterable
 
 from eth_typing import Hash32
-from eth_utils import ValidationError
+from eth_utils import ValidationError, to_tuple
 from ssz.constants import ZERO_HASHES
 from ssz.hash import hash_eth2
 

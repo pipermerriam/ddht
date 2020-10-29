@@ -179,6 +179,7 @@ class Proof:
     sedes: ListSedes
     hash_tree_root: Hash32
     elements: Tuple[ProofElement, ...]
+    tree: ProofTree
 
     def serialize(self) -> bytes:
         # TODO: we can elimenate the need for the tree object by 1) directly
