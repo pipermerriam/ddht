@@ -20,7 +20,10 @@ from ddht.v5_1.alexandria.sedes import content_sedes
 from ddht.v5_1.alexandria.partials.typing import TreePath
 from ddht.v5_1.alexandria.partials.tree import construct_node_tree, ProofTree
 from ddht.v5_1.alexandria.partials._utils import (
-    display_path, decompose_into_powers_of_two, get_longest_common_path,
+    display_path,
+    decompose_into_powers_of_two,
+    get_longest_common_path,
+    get_chunk_count_for_data_length,
 )
 
 
@@ -221,10 +224,11 @@ class Proof:
         # paths.
         tree = self.get_tree()
         length = tree.get_data_length()
-        num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
+        num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
         path_bit_length = self.sedes.chunk_count.bit_length()
         last_data_chunk_path = chunk_index_to_path(last_data_chunk_index, path_bit_length)
+
         data_nodes = tuple(
             node for node in tree.walk(end_at=last_data_chunk_path) if node.is_terminal
         )
@@ -254,21 +258,25 @@ class Proof:
 
         data_elements = _parse_element_stream(stream)
 
-        num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
+        num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
         path_bit_length = sedes.chunk_count.bit_length()
 
-        num_padding_chunks = sedes.chunk_count - num_data_chunks
+        num_padding_chunks = sedes.chunk_count - max(1, num_data_chunks)
 
         padding_elements = get_padding_elements(
             last_data_chunk_index,
             num_padding_chunks,
             path_bit_length,
         )
+        assert not any(el.path == (True,) for el in data_elements)
+        assert not any(el.path == (True,) for el in padding_elements)
         length_element = ProofElement(path=(True,), value=length.to_bytes(CHUNK_SIZE, 'little'))
 
         elements = data_elements + padding_elements + (length_element,)
 
+        proof = cls(hash_tree_root, elements, sedes)
+        validate_proof(proof)
         return cls(hash_tree_root, elements, sedes)
 
     def to_partial(self, start_at: int, partial_data_length: int) -> "Proof":
@@ -295,9 +303,11 @@ class Proof:
         # Compute the chunk indices and corresponding paths for the locations
         # in the tree where the partial data starts and ends.
         first_partial_chunk_index = start_at // CHUNK_SIZE
-        last_partial_chunk_index = max(
-            0, (start_at + partial_data_length + CHUNK_SIZE - 1) // CHUNK_SIZE - 1,
-        )
+
+        if partial_data_length == 0:
+            last_partial_chunk_index = first_partial_chunk_index
+        else:
+            last_partial_chunk_index = (end_at - 1) // CHUNK_SIZE
 
         first_partial_chunk_path = chunk_index_to_path(
             first_partial_chunk_index, path_bit_length
@@ -323,7 +333,7 @@ class Proof:
             )
 
         # Compute the total number of non-padding chunks in the tree.
-        num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
+        num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
         last_data_chunk_path = chunk_index_to_path(
             last_data_chunk_index, path_bit_length
@@ -386,6 +396,8 @@ class Proof:
         partial_elements = tuple(
             ProofElement(path=node.path, value=node.get_value()) for node in partial_nodes
         )
+        proof = Proof(self.hash_tree_root, partial_elements, self.sedes)
+        validate_proof(proof)
 
         return Proof(self.hash_tree_root, partial_elements, self.sedes)
 
@@ -400,7 +412,7 @@ class Proof:
 
     @to_tuple
     def get_proven_data_segments(self, length: int) -> Iterable[Tuple[int, bytes]]:
-        num_data_chunks = (length + CHUNK_SIZE - 1) // CHUNK_SIZE
+        num_data_chunks = get_chunk_count_for_data_length(length)
 
         path_bit_length = self.sedes.chunk_count.bit_length()
 

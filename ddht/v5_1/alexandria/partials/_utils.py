@@ -1,6 +1,7 @@
 from typing import Iterable
 
 from eth_utils import to_tuple
+from ssz.constants import CHUNK_SIZE
 
 from ddht.v5_1.alexandria.constants import POWERS_OF_TWO
 
@@ -40,3 +41,9 @@ def get_longest_common_path(*paths: TreePath) -> Iterable[bool]:
             yield crumbs[0]
         else:
             break
+
+
+def get_chunk_count_for_data_length(length: int) -> int:
+    if length == 0:
+        return 0
+    return (length + CHUNK_SIZE - 1) // CHUNK_SIZE

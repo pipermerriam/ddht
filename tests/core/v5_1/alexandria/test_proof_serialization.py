@@ -107,9 +107,9 @@ def test_proof_element_serialization_round_trip_fuzzy(data):
 
 
 @settings(max_examples=1000)
-@given(data=st.binary(min_size=0, max_size=GB))
-def test_proof_serialization_and_deserialization(data):
-    proof = compute_proof(data, sedes=content_sedes)
+@given(content=st.binary(min_size=0, max_size=GB))
+def test_full_proof_serialization_and_deserialization(content):
+    proof = compute_proof(content, sedes=content_sedes)
 
     serialized = proof.serialize()
     result = Proof.deserialize(io.BytesIO(serialized), proof.hash_tree_root)

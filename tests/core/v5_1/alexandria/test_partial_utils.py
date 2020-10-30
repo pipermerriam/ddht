@@ -7,6 +7,7 @@ from ddht.v5_1.alexandria.partials.chunking import (
 from ddht.v5_1.alexandria.partials._utils import (
     decompose_into_powers_of_two,
     get_longest_common_path,
+    get_chunk_count_for_data_length,
 )
 
 
@@ -111,3 +112,18 @@ def test_decompose_into_powers_of_two(value, expected):
     actual = decompose_into_powers_of_two(value)
     assert actual == expected
     assert sum(actual) == value
+
+
+@pytest.mark.parametrize(
+    'length,expected',
+    (
+        (0, 0),
+        (1, 1),
+        (31, 1),
+        (32, 1),
+        (33, 2),
+    ),
+)
+def test_get_chunk_count_for_data_length(length, expected):
+    actual = get_chunk_count_for_data_length(length)
+    assert actual == expected
