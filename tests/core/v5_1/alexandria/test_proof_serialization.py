@@ -117,3 +117,35 @@ def test_full_proof_serialization_and_deserialization(content):
     validate_proof(result)
 
     assert result == proof
+
+
+@settings(max_examples=1000)
+@given(data=st.data())
+def test_partial_proof_serialization_and_deserialization(data):
+    content = data.draw(st.binary(min_size=0, max_size=GB))
+
+    slice_start = data.draw(
+        st.integers(min_value=0, max_value=max(0, len(content) - 1))
+    )
+    slice_stop = data.draw(st.integers(min_value=slice_start, max_value=len(content)))
+    data_slice = slice(slice_start, slice_stop)
+
+    full_proof = compute_proof(content, sedes=content_sedes)
+
+    slice_length = max(0, data_slice.stop - data_slice.start - 1)
+
+    partial_proof = full_proof.to_partial(
+        start_at=data_slice.start, partial_data_length=slice_length,
+    )
+    assert partial_proof.hash_tree_root == full_proof.hash_tree_root
+
+    serialized = partial_proof.serialize()
+    result = Proof.deserialize(io.BytesIO(serialized), partial_proof.hash_tree_root)
+
+    validate_proof(result)
+
+    assert result == partial_proof
+
+    partial = result.get_proven_data()
+    data_from_partial = partial[data_slice]
+    assert data_from_partial == content[data_slice]

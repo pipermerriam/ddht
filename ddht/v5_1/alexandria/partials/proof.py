@@ -41,7 +41,53 @@ class ProofElement:
 
     def serialize(self, previous: Optional[TreePath]) -> bytes:
         """
-        data := common-bytes || length-byte || path || value
+        Proof elements are serialized in sequence, lexographically sorted.
+        Encoding is contextual on the previous encoded element.
+
+        We encode the path as follows.
+
+        path := path_head || path_tail
+
+        The `path_head` are the leading bits from the previous path that are
+        shared by this path.  `path_tail` are the remaining bits from this
+        path.
+
+        For example:
+
+        previous: (0, 0, 1, 1, 0, 0, 1, 1)
+        path:     (0, 0, 1, 1, 1, 0, 1, 1)
+
+        path_head = (0, 0, 1, 1)
+        path_tail = (1, 0, 1, 1)
+
+        Encoding of the path involves:
+
+        tail_length      := len(path_tail)
+        path_tail_as_int := sum(2**i for i in range(tail_length))
+        head_length := len(path_head)
+
+        Since path's are constrained to a total of 26 bits, we can account for
+        the full length in 5 bits (2**5 == 32).  The most bits we could need
+        for a path are when the path shares no bits with the previous path,
+        meaning 26 bits for the `path_tail`, and another 5 bits for the length,
+        and zero bits needed for the `head_length`.
+
+        We encode these three values together into a single little endian
+        encoded integer and then LEB128 encode them.
+
+        encoded_path := tail_length ^ shifted_path_as_int ^ shifted_head_length
+        shifted_path_as_int := path_as_int << 5
+        shifted_head_length := head_length << (5 + tail_length)
+
+        To decode, we apply the same process in reverse.  First, decode the
+        LEB128 encoded value.
+
+        The first 5 bits encode the `tail_length`.
+
+        Once the `tail_length` is known, we shift off that many bits to
+        determine the actual `path_tail`.
+
+        All of the remaining bits are the `head_length`.
         """
         if previous is None:
             path = self.path
@@ -68,6 +114,12 @@ class ProofElement:
 
     @classmethod
     def deserialize(cls, stream: io.BytesIO, previous: Optional[TreePath]) -> "ProofElement":
+        """
+        Serialized proof elements can only be deserialized in the context of a
+        stream with access to path of the previously decoded element.
+
+        See the ``serialize(...)`` method for information on the format.
+        """
         header_as_int = parse_leb128(stream)
         value = stream.read(32)
         if len(value) != 32:
@@ -164,8 +216,16 @@ class DataPartial:
 
 @to_tuple
 def _parse_element_stream(stream: IO[bytes]) -> Iterable[ProofElement]:
+    """
+    Parse a stream of serialized `ProofEelement` objects.
+    """
     previous_path = None
     while True:
+        # TODO: in the event that the stream still hase a few bytes but they
+        # are insufficient to decode a full element and the stream is left
+        # empty, this will result in a false positive of successful decoding.
+        # We may need to create a thin wrapper around the stream to allow us to
+        # detect this situation if we want more strict decoding.
         try:
             element = ProofElement.deserialize(stream, previous=previous_path)
         except ParseError:
@@ -184,7 +244,10 @@ class Proof:
     Representation of a merkle proof for an SSZ byte string (aka List[uint8,
     max_length=...]).
     """
+    # TODO: look at where `self.sedes` is actually used and figure out if it belongs in this class.
     sedes: ListSedes
+    # TODO: footgun.  Without performing verification (validate_proof(proof))
+    # we don't know this value is actually valid.
     hash_tree_root: Hash32
     elements: Tuple[ProofElement, ...]
 
@@ -211,6 +274,10 @@ class Proof:
         return self.sedes.chunk_count.bit_length()
 
     def get_tree(self) -> ProofTree:
+        # TODO: Measure cost of tree construction.  The tree is useful for
+        # proof construction but it's probably more expensive than is necessary
+        # for verifying state root.  Also, it uses a lot of recursive
+        # algorithms which aren't very efficient.
         if self._tree_cache is None:
             tree_data = tuple((el.path, el.value) for el in self.elements)
             root_node = construct_node_tree(tree_data, (), self.path_bit_length)
@@ -226,8 +293,7 @@ class Proof:
         length = tree.get_data_length()
         num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
-        path_bit_length = self.sedes.chunk_count.bit_length()
-        last_data_chunk_path = chunk_index_to_path(last_data_chunk_index, path_bit_length)
+        last_data_chunk_path = chunk_index_to_path(last_data_chunk_index, self.path_bit_length)
 
         data_nodes = tuple(
             node for node in tree.walk(end_at=last_data_chunk_path) if node.is_terminal
@@ -260,14 +326,13 @@ class Proof:
 
         num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
-        path_bit_length = sedes.chunk_count.bit_length()
 
         num_padding_chunks = sedes.chunk_count - max(1, num_data_chunks)
 
         padding_elements = get_padding_elements(
             last_data_chunk_index,
             num_padding_chunks,
-            path_bit_length,
+            sedes.chunk_count.path_bit_length(),
         )
         assert not any(el.path == (True,) for el in data_elements)
         assert not any(el.path == (True,) for el in padding_elements)
@@ -290,8 +355,6 @@ class Proof:
         tree = self.get_tree()
         length = tree.get_data_length()
 
-        path_bit_length = self.sedes.chunk_count.bit_length()
-
         # Ensure that we aren't requesting data that exceeds the overall length
         # of the underlying data.
         end_at = start_at + partial_data_length
@@ -310,10 +373,10 @@ class Proof:
             last_partial_chunk_index = (end_at - 1) // CHUNK_SIZE
 
         first_partial_chunk_path = chunk_index_to_path(
-            first_partial_chunk_index, path_bit_length
+            first_partial_chunk_index, self.path_bit_length
         )
         last_partial_chunk_path = chunk_index_to_path(
-            last_partial_chunk_index, path_bit_length
+            last_partial_chunk_index, self.path_bit_length
         )
 
         # Get all of the leaf nodes for the section of the tree where the
@@ -336,7 +399,7 @@ class Proof:
         num_data_chunks = get_chunk_count_for_data_length(length)
         last_data_chunk_index = max(0, num_data_chunks - 1)
         last_data_chunk_path = chunk_index_to_path(
-            last_data_chunk_index, path_bit_length
+            last_data_chunk_index, self.path_bit_length
         )
 
         #
@@ -346,8 +409,8 @@ class Proof:
         # end-at   : first_partial_chunk_index - 1
         if first_partial_chunk_index > 0:
             nodes_left_of_partial = tree.get_subtree_proof_nodes(
-                chunk_index_to_path(0, path_bit_length),
-                chunk_index_to_path(first_partial_chunk_index - 1, path_bit_length),
+                chunk_index_to_path(0, self.path_bit_length),
+                chunk_index_to_path(first_partial_chunk_index - 1, self.path_bit_length),
             )
         else:
             nodes_left_of_partial = ()
@@ -359,7 +422,7 @@ class Proof:
         # end-at   : last_data_chunk_index
         if last_partial_chunk_index + 1 <= last_data_chunk_index:
             nodes_right_of_partial = tree.get_subtree_proof_nodes(
-                chunk_index_to_path(last_partial_chunk_index + 1, path_bit_length),
+                chunk_index_to_path(last_partial_chunk_index + 1, self.path_bit_length),
                 last_data_chunk_path,
             )
         else:
@@ -372,7 +435,7 @@ class Proof:
         # end-at   : N/A
         if last_data_chunk_index + 1 <= self.sedes.chunk_count - 1:
             first_padding_chunk_path = chunk_index_to_path(
-                last_data_chunk_index + 1, path_bit_length
+                last_data_chunk_index + 1, self.path_bit_length
             )
             actual_first_padding_node = tree.get_deepest_node_on_path(
                 first_padding_chunk_path
@@ -414,11 +477,9 @@ class Proof:
     def get_proven_data_segments(self, length: int) -> Iterable[Tuple[int, bytes]]:
         num_data_chunks = get_chunk_count_for_data_length(length)
 
-        path_bit_length = self.sedes.chunk_count.bit_length()
-
         last_data_chunk_index = max(0, num_data_chunks - 1)
         last_data_chunk_path = chunk_index_to_path(
-            last_data_chunk_index, path_bit_length
+            last_data_chunk_index, self.path_bit_length
         )
 
         last_data_chunk_data_size = length % CHUNK_SIZE
@@ -434,7 +495,7 @@ class Proof:
         for node in tree.walk(end_at=last_data_chunk_path):
             if not node.is_leaf:
                 continue
-            chunk_index = path_to_left_chunk_index(node.path, path_bit_length)
+            chunk_index = path_to_left_chunk_index(node.path, self.path_bit_length)
 
             if chunk_index == last_data_chunk_index:
                 if last_data_chunk_data_size:

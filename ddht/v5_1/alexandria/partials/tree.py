@@ -27,6 +27,8 @@ def construct_node_tree(
 ) -> "Node":
     """
     Construct the tree of nodes for a ProofTree.
+
+    TODO: How can we do this non-recursively....
     """
     #
     # TERMINAL NODE
@@ -359,6 +361,9 @@ class ProofTree:
         num_chunks = last_chunk_index - first_chunk_index + 1
         chunk_groups = group_by_subtree(first_chunk_index, num_chunks)
         subtree_node_paths = tuple(
+            # TODO: we can derive how many bits of the path the nodes have in
+            # common from the group size rather than having to actually
+            # re-process the paths.
             get_longest_common_path(
                 chunk_index_to_path(group[0], path_bit_length),
                 chunk_index_to_path(group[-1], path_bit_length),
